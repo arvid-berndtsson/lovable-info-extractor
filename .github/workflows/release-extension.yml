@@ -1,0 +1,65 @@
+name: Release Extension
+
+on:
+  release:
+    types: [created]
+
+permissions:
+  contents: write
+
+jobs:
+  test-and-package:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies (if lockfile exists)
+        run: |
+          if [ -f package-lock.json ]; then
+            npm ci
+          else
+            npm install --no-audit --no-fund
+          fi
+
+      - name: Run tests
+        run: npm test
+
+      - name: Validate release tag against manifest version
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          TAG_VERSION="${TAG#v}"
+          MANIFEST_VERSION=$(node -e "console.log(JSON.parse(require('fs').readFileSync('manifest.json', 'utf8')).version)")
+
+          if [ "$TAG_VERSION" != "$MANIFEST_VERSION" ]; then
+            echo "Release tag ($TAG) must match manifest version ($MANIFEST_VERSION)"
+            echo "Use tag '$MANIFEST_VERSION' or 'v$MANIFEST_VERSION'."
+            exit 1
+          fi
+
+      - name: Build extension zip
+        run: |
+          MANIFEST_VERSION=$(node -e "console.log(JSON.parse(require('fs').readFileSync('manifest.json', 'utf8')).version)")
+          mkdir -p dist
+          ZIP_NAME="lovable-info-extractor-v${MANIFEST_VERSION}.zip"
+          zip -r "dist/${ZIP_NAME}" \
+            manifest.json \
+            src \
+            LICENSE \
+            README.md \
+            -x "*.DS_Store"
+          shasum -a 256 "dist/${ZIP_NAME}" > "dist/${ZIP_NAME}.sha256"
+
+      - name: Upload release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.zip
+            dist/*.sha256
