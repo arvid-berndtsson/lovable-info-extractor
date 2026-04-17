@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Lovable Info Extractor - Manual Export</title>
+    <link rel="stylesheet" href="./export.css" />
+  </head>
+  <body>
+    <main class="app">
+      <h1>Manual Export</h1>
+      <p id="status" class="status">Loading export data...</p>
+      <p id="reason" class="reason" hidden></p>
+      <div class="actions">
+        <button id="downloadButton" disabled>Download File</button>
+        <button id="copyButton" disabled>Copy to Clipboard</button>
+      </div>
+      <label class="field" for="content">Content</label>
+      <textarea id="content" readonly></textarea>
+    </main>
+    <script type="module" src="./export.js"></script>
+  </body>
+</html>

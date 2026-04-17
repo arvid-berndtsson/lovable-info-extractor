@@ -33,6 +33,7 @@ Chromium extension for gathering Lovable project URLs and security-center signal
 4. Download:
 - `lovable-info-extractor-<timestamp>.json` (full crawl + security summary)
 - `targets.txt` (published URLs only, one per line)
+- If browser download APIs fail, the extension opens a `Manual Export` tab with copy/download fallback.
 
 Optional:
 - Enable `Patch mode` in the popup to let the extension:

@@ -174,12 +174,37 @@ openOptionsButton.addEventListener("click", async () => {
   await chrome.runtime.openOptionsPage();
 });
 
-downloadJsonButton.addEventListener("click", () => {
-  downloadAuditJson(latestResult);
+async function handleDownload(kind) {
+  if (!latestResult) {
+    setStatus("No audit data available. Run an audit first.");
+    return;
+  }
+
+  setStatus("Preparing download...");
+  const targetButton = kind === "json" ? downloadJsonButton : downloadTargetsButton;
+  targetButton.disabled = true;
+  try {
+    const response = kind === "json" ? await downloadAuditJson() : await downloadTargets();
+    if (response?.fallbackOpened) {
+      setStatus(
+        `Download API failed (${response.fallbackReason || "unknown"}). Opened manual export tab.`
+      );
+    } else {
+      setStatus(`Download started: ${response.filename || "file"}`);
+    }
+  } catch (error) {
+    setStatus(`Download failed: ${error instanceof Error ? error.message : String(error)}`);
+  } finally {
+    targetButton.disabled = false;
+  }
+}
+
+downloadJsonButton.addEventListener("click", async () => {
+  await handleDownload("json");
 });
 
-downloadTargetsButton.addEventListener("click", () => {
-  downloadTargets(latestResult);
+downloadTargetsButton.addEventListener("click", async () => {
+  await handleDownload("targets");
 });
 
 (async () => {
