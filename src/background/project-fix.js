@@ -93,6 +93,7 @@ export async function maybeHandleProjectPublishUpdate({
   publishStats,
   pushDebug,
   waitForUpdateMs = 30000,
+  pageLoadTimeoutMs = null,
   navigateTabFn = navigateTab,
   clickPublishUpdateFn = clickPublishUpdate
 }) {
@@ -108,7 +109,7 @@ export async function maybeHandleProjectPublishUpdate({
   const projectUrl = stripProjectSecurityViewUrl(resolvedUrl);
 
   try {
-    await navigateTabFn(tabId, projectUrl);
+    await navigateTabFn(tabId, projectUrl, { loadTimeoutMs: pageLoadTimeoutMs });
     publishStats.navigated += 1;
 
     const publishResult = await clickPublishUpdateFn(tabId, waitForUpdateMs);

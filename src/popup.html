@@ -16,11 +16,17 @@
         <input id="patchModeToggle" type="checkbox" />
         Patch mode: click "Scan", "Try to fix all", and project "Update" when available
       </label>
+      <p class="hint">
+        Advanced settings (parallel workers, tab grouping, scan recency skip) are available in Options.
+      </p>
       <div class="actions">
         <button id="runAudit" class="primary">Run Audit</button>
-        <button id="pauseAudit" disabled>Pause</button>
-        <button id="resumeAudit" disabled>Resume</button>
-        <button id="stopAudit" disabled>Stop</button>
+        <button id="openOptions">Options</button>
+      </div>
+      <div id="runtimeControls" class="actions runtime-controls" hidden>
+        <button id="pauseAudit" hidden disabled>Pause</button>
+        <button id="resumeAudit" hidden disabled>Resume</button>
+        <button id="stopAudit" hidden disabled>Stop</button>
       </div>
       <p id="status" class="status">Idle</p>
 

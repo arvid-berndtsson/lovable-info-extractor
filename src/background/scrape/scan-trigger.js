@@ -1,7 +1,16 @@
-export async function triggerScansForAllProjects(tabId) {
+export async function triggerScansForAllProjects(tabId, options = {}) {
   const [{ result }] = await chrome.scripting.executeScript({
     target: { tabId },
-    func: async () => {
+    args: [
+      {
+        skipRecentScans: options?.skipRecentScans === true,
+        recentScanSkipHours: Math.max(
+          1,
+          Number.parseInt(String(options?.recentScanSkipHours ?? "3"), 10) || 3
+        )
+      }
+    ],
+    func: async (triggerOptions) => {
       const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
       function readText(node) {
@@ -160,6 +169,66 @@ export async function triggerScansForAllProjects(tabId) {
         return Boolean(lastScanCell.querySelector(".animate-spin"));
       }
 
+      function parseLastScanAgeHours(row) {
+        const cells = Array.from(row.querySelectorAll("td"));
+        const lastScanCell = cells[4] || null;
+        if (!lastScanCell) {
+          return null;
+        }
+
+        const text = readText(lastScanCell).toLowerCase();
+        if (!text || text === "-" || text.includes("never")) {
+          return null;
+        }
+        if (text.includes("scanning")) {
+          return null;
+        }
+        if (text.includes("just now")) {
+          return 0;
+        }
+        if (text.includes("yesterday")) {
+          return 24;
+        }
+
+        const unitMatch = text.match(
+          /(?:about\s+)?(\d+|an?|one)\s+(minute|minutes|hour|hours|day|days|week|weeks|month|months|year|years)\s+ago/
+        );
+
+        if (!unitMatch) {
+          return null;
+        }
+
+        const rawValue = unitMatch[1];
+        const value =
+          rawValue === "a" || rawValue === "an" || rawValue === "one"
+            ? 1
+            : Number.parseInt(rawValue, 10);
+        if (!Number.isFinite(value)) {
+          return null;
+        }
+
+        const unit = unitMatch[2];
+        if (unit.startsWith("minute")) {
+          return value / 60;
+        }
+        if (unit.startsWith("hour")) {
+          return value;
+        }
+        if (unit.startsWith("day")) {
+          return value * 24;
+        }
+        if (unit.startsWith("week")) {
+          return value * 24 * 7;
+        }
+        if (unit.startsWith("month")) {
+          return value * 24 * 30;
+        }
+        if (unit.startsWith("year")) {
+          return value * 24 * 365;
+        }
+        return null;
+      }
+
       async function processScrollableTableOnCurrentPage(onRow) {
         const viewport = getViewport();
         await onRow();
@@ -200,6 +269,7 @@ export async function triggerScansForAllProjects(tabId) {
 
       const seenKeys = new Set();
       let clickedCount = 0;
+      let skippedRecentCount = 0;
       let alreadyScanningCount = 0;
       let disabledCount = 0;
       let missingButtonCount = 0;
@@ -234,6 +304,17 @@ export async function triggerScansForAllProjects(tabId) {
           if (isLastScanRunning(row)) {
             alreadyScanningCount += 1;
             continue;
+          }
+
+          if (triggerOptions.skipRecentScans) {
+            const lastScanAgeHours = parseLastScanAgeHours(row);
+            if (
+              Number.isFinite(lastScanAgeHours) &&
+              lastScanAgeHours < triggerOptions.recentScanSkipHours
+            ) {
+              skippedRecentCount += 1;
+              continue;
+            }
           }
 
           if (scanButton.disabled) {
@@ -271,9 +352,12 @@ export async function triggerScansForAllProjects(tabId) {
         paginationPasses,
         processedRows: seenKeys.size,
         clickedCount,
+        skippedRecentCount,
         alreadyScanningCount,
         disabledCount,
-        missingButtonCount
+        missingButtonCount,
+        skipRecentScans: triggerOptions.skipRecentScans,
+        recentScanSkipHours: triggerOptions.recentScanSkipHours
       };
     }
   });

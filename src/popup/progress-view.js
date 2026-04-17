@@ -20,6 +20,13 @@ export function renderProgress(progress, { progressNode, setStatus }) {
   if (typeof progress.expectedTotalProjects === "number" && progress.expectedTotalProjects > 0) {
     lines.push(`Expected projects: ${progress.expectedTotalProjects}`);
   }
+  if (typeof progress.parallelProjectProcessed === "number" && progress.parallelProjectProcessed > 0) {
+    const total = typeof progress.parallelProjectTotal === "number" ? progress.parallelProjectTotal : "?";
+    lines.push(`Parallel projects: ${progress.parallelProjectProcessed}/${total}`);
+  }
+  if (typeof progress.parallelWorkers === "number" && progress.parallelWorkers > 0) {
+    lines.push(`Parallel workers: ${progress.parallelWorkers}`);
+  }
   if (progress.updatedAt) {
     lines.push(`Updated: ${progress.updatedAt}`);
   }
