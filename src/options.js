@@ -14,6 +14,7 @@ const elements = {
   skipRecentSettings: document.getElementById("skipRecentSettings"),
   recentScanSkipHours: document.getElementById("recentScanSkipHours"),
   pageLoadTimeoutSec: document.getElementById("pageLoadTimeoutSec"),
+  waitForPublishUpdateCompletion: document.getElementById("waitForPublishUpdateCompletion"),
   saveState: document.getElementById("saveState")
 };
 
@@ -47,6 +48,7 @@ function normalizeSettings(input = {}) {
       recentScanSkipHoursLimits.max,
       recentScanSkipHoursLimits.default
     ),
+    waitForPublishUpdateCompletion: input.waitForPublishUpdateCompletion !== false,
     pageLoadTimeoutSec: clamp(
       input.pageLoadTimeoutSec,
       pageLoadTimeoutSecLimits.min,
@@ -63,6 +65,7 @@ function render() {
   elements.skipRecentScans.checked = currentSettings.skipRecentScans;
   elements.recentScanSkipHours.value = String(currentSettings.recentScanSkipHours);
   elements.pageLoadTimeoutSec.value = String(currentSettings.pageLoadTimeoutSec);
+  elements.waitForPublishUpdateCompletion.checked = currentSettings.waitForPublishUpdateCompletion;
 
   elements.parallelSettings.hidden = !currentSettings.parallelProjectInspections;
   elements.skipRecentSettings.hidden = !currentSettings.skipRecentScans;
@@ -76,7 +79,8 @@ function readFromForm() {
     groupProjectTabs: elements.groupProjectTabs.checked,
     skipRecentScans: elements.skipRecentScans.checked,
     recentScanSkipHours: elements.recentScanSkipHours.value,
-    pageLoadTimeoutSec: elements.pageLoadTimeoutSec.value
+    pageLoadTimeoutSec: elements.pageLoadTimeoutSec.value,
+    waitForPublishUpdateCompletion: elements.waitForPublishUpdateCompletion.checked
   });
 }
 
@@ -129,6 +133,7 @@ async function init() {
   elements.skipRecentScans.addEventListener("change", onFieldInput);
   elements.recentScanSkipHours.addEventListener("change", onFieldInput);
   elements.pageLoadTimeoutSec.addEventListener("change", onFieldInput);
+  elements.waitForPublishUpdateCompletion.addEventListener("change", onFieldInput);
 }
 
 init().catch((error) => {

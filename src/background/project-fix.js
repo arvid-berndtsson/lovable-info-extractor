@@ -28,6 +28,7 @@ export function createPublishUpdateStats() {
     attempted: 0,
     navigated: 0,
     foundPublishMenu: 0,
+    publishMenuOpenFailures: 0,
     sawUpToDate: 0,
     sawUpdate: 0,
     upToDateNoUpdate: 0,
@@ -35,6 +36,7 @@ export function createPublishUpdateStats() {
     unexpectedMissingUpdate: 0,
     draftWithoutUpdate: 0,
     clicked: 0,
+    clickedNoWait: 0,
     clickedSettledUpToDate: 0,
     clickedStillUpdating: 0,
     clickedUnconfirmed: 0,
@@ -111,6 +113,7 @@ export async function maybeHandleProjectPublishUpdate({
   pushDebug,
   projectOverview = null,
   waitForUpdateMs = 30000,
+  waitForPublishUpdateCompletion = true,
   pageLoadTimeoutMs = null,
   navigateTabFn = navigateTab,
   clickPublishUpdateFn = clickPublishUpdate
@@ -131,7 +134,10 @@ export async function maybeHandleProjectPublishUpdate({
     await navigateTabFn(tabId, projectUrl, { loadTimeoutMs: pageLoadTimeoutMs });
     publishStats.navigated += 1;
 
-    const publishResult = await clickPublishUpdateFn(tabId, waitForUpdateMs);
+    const publishResult = await clickPublishUpdateFn(tabId, {
+      waitForUpdateMs,
+      waitForPostClick: waitForPublishUpdateCompletion
+    });
     const upToDateNoUpdate =
       publishResult.reason === "still_up_to_date" ||
       (publishResult.sawUpToDate === true && publishResult.sawUpdate !== true);
@@ -162,6 +168,18 @@ export async function maybeHandleProjectPublishUpdate({
     if (publishResult.foundPublishMenu) {
       publishStats.foundPublishMenu += 1;
     }
+    if ((publishResult.publishMenu?.openFailures || 0) > 0) {
+      publishStats.publishMenuOpenFailures += publishResult.publishMenu.openFailures;
+      pushDebug("project_publish_update_publish_menu_issue", {
+        url: resolvedUrl,
+        projectUrl,
+        overviewProject: projectOverview || null,
+        reason:
+          "Publish button was found but did not reliably open during one or more attempts before Update lookup",
+        publishMenu: publishResult.publishMenu,
+        diagnostics: publishResult.diagnostics || null
+      });
+    }
     if (publishResult.sawUpToDate) {
       publishStats.sawUpToDate += 1;
     }
@@ -181,7 +199,9 @@ export async function maybeHandleProjectPublishUpdate({
     }
     if (publishResult.clicked) {
       publishStats.clicked += 1;
-      if (publishResult.postClick?.lifecycle === "up_to_date") {
+      if (publishResult.postClick?.lifecycle === "skipped") {
+        publishStats.clickedNoWait += 1;
+      } else if (publishResult.postClick?.lifecycle === "up_to_date") {
         publishStats.clickedSettledUpToDate += 1;
       } else if (publishResult.postClick?.lifecycle === "updating") {
         publishStats.clickedStillUpdating += 1;

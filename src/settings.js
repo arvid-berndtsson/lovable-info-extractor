@@ -7,5 +7,6 @@ export const DEFAULT_AUDIT_SETTINGS = {
   projectWorkerCount: 3,
   skipRecentScans: true,
   recentScanSkipHours: 3,
-  pageLoadTimeoutSec: 0
+  pageLoadTimeoutSec: 0,
+  waitForPublishUpdateCompletion: true
 };

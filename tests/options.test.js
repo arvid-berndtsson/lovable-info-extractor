@@ -12,6 +12,7 @@ test("resolveRunOptions uses safe defaults", () => {
   assert.equal(options.projectWorkerCount, 3);
   assert.equal(options.skipRecentScans, true);
   assert.equal(options.recentScanSkipHours, 3);
+  assert.equal(options.waitForPublishUpdateCompletion, true);
   assert.equal(options.pageLoadTimeoutSec, 0);
   assert.equal(options.pageLoadTimeoutMs, null);
 });
@@ -30,6 +31,7 @@ test("resolveRunOptions reads booleans explicitly", () => {
     projectWorkerCount: 4,
     skipRecentScans: false,
     recentScanSkipHours: 6,
+    waitForPublishUpdateCompletion: false,
     pageLoadTimeoutSec: 45
   });
 
@@ -39,6 +41,7 @@ test("resolveRunOptions reads booleans explicitly", () => {
   assert.equal(options.projectWorkerCount, 4);
   assert.equal(options.skipRecentScans, false);
   assert.equal(options.recentScanSkipHours, 6);
+  assert.equal(options.waitForPublishUpdateCompletion, false);
   assert.equal(options.pageLoadTimeoutSec, 45);
   assert.equal(options.pageLoadTimeoutMs, 45000);
 });

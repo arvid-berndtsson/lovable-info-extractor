@@ -319,6 +319,7 @@ export async function runLovableAudit(options = {}) {
     projectWorkerCount,
     skipRecentScans,
     recentScanSkipHours,
+    waitForPublishUpdateCompletion,
     pageLoadTimeoutMs
   } = runOptions;
 
@@ -520,6 +521,7 @@ export async function runLovableAudit(options = {}) {
             pushDebug,
             projectOverview: resolveProjectOverviewForUrl(resolvedUrl, projectOverviewByUrl),
             waitForUpdateMs: 45000,
+            waitForPublishUpdateCompletion,
             pageLoadTimeoutMs
           });
 
@@ -618,6 +620,7 @@ export async function runLovableAudit(options = {}) {
             patchMode,
             projectWorkerCount,
             groupProjectTabs,
+            waitForPublishUpdateCompletion,
             pageLoadTimeoutMs,
             windowId: activeTab.windowId,
             tabInsertIndex: activeTab.index,

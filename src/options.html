@@ -45,6 +45,11 @@
         <label class="field" for="pageLoadTimeoutSec">Page load timeout (seconds)</label>
         <input id="pageLoadTimeoutSec" type="number" min="0" max="600" step="1" />
         <p class="hint-inline">Set to <code>0</code> to use built-in defaults (30s general, 60s project pages).</p>
+
+        <label class="toggle">
+          <input id="waitForPublishUpdateCompletion" type="checkbox" />
+          Wait for post-Update lifecycle ("Updating" / "Up to date")
+        </label>
       </section>
 
       <section class="panel">

@@ -51,18 +51,7 @@ Optional:
 
 ## Feed Into `lovable-security`
 
-Use whichever audit repo setup you have:
-
-1. Local sibling folder setup (`../lovable-security`):
-
-```bash
-cd ../lovable-security
-bun run audit --targets-file /path/to/targets.txt
-```
-
-2. Public repository:
-
-- `https://github.com/arvid-berndtsson/lovable-security-audit`
+Use the public audit project: [lovable-security-audit](https://github.com/arvid-berndtsson/lovable-security-audit)
 
 Example:
 

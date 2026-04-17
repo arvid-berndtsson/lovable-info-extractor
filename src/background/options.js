@@ -50,6 +50,7 @@ export function resolveRunOptions(options = {}) {
     projectWorkerCount: toWorkerCount(merged.projectWorkerCount),
     skipRecentScans: merged.skipRecentScans === true,
     recentScanSkipHours: toRecentScanSkipHours(merged.recentScanSkipHours),
+    waitForPublishUpdateCompletion: merged.waitForPublishUpdateCompletion !== false,
     pageLoadTimeoutSec,
     pageLoadTimeoutMs: pageLoadTimeoutSec > 0 ? pageLoadTimeoutSec * 1000 : null
   };
