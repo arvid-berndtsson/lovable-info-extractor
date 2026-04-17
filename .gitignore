@@ -11,6 +11,7 @@ pnpm-debug.log*
 # Test / coverage
 coverage/
 .nyc_output/
+.playwright-mcp/
 
 # Local editor/IDE
 .idea/

@@ -4,6 +4,7 @@ import {
   maybeHandleProjectPublishUpdate
 } from "./project-fix.js";
 import { scrapeCurrentPage } from "./scrape/index.js";
+import { recoverProjectSecurityView } from "./security-view.js";
 import {
   ensureProjectSecurityViewUrl,
   isLovableProjectPage,
@@ -304,8 +305,19 @@ export async function processProjectInspectionsInParallel({
           loadTimeoutMs: pageLoadTimeoutMs
         });
         const scrapeStart = Date.now();
-        const scraped = await scrapeCurrentPage(workerTabId);
+        let scraped = await scrapeCurrentPage(workerTabId);
         const scrapeMs = Date.now() - scrapeStart;
+
+        const securityRecoveryResult = await recoverProjectSecurityView({
+          tabId: workerTabId,
+          intendedUrl: targetUrl,
+          initialScraped: scraped,
+          scrapeFn: scrapeCurrentPage,
+          pushDebug,
+          loadTimeoutMs: pageLoadTimeoutMs
+        });
+        scraped = securityRecoveryResult.scraped;
+
         if (!scraped || !scraped.url) {
           continue;
         }
@@ -316,6 +328,7 @@ export async function processProjectInspectionsInParallel({
           url: resolvedUrl,
           title: scraped.title,
           textLength: scraped.text.length,
+          securityViewRecovery: securityRecoveryResult.recovery,
           timings: {
             navigateMs: navigationTiming?.elapsedMs || 0,
             waitForLoadMs: navigationTiming?.waitMs || 0,
