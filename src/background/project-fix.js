@@ -2,6 +2,16 @@ import { navigateTab } from "./navigation.js";
 import { clickPublishUpdate, tryClickTryFixAll } from "./scrape/index.js";
 import { isProjectSecurityViewUrl, stripProjectSecurityViewUrl } from "./shared.js";
 
+function normalizeVisibility(value) {
+  const text = String(value || "").trim();
+  return text || null;
+}
+
+function isDraftVisibility(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  return normalized === "draft" || normalized.includes("draft");
+}
+
 export function createTryFixAllStats() {
   return {
     attempted: 0,
@@ -20,7 +30,14 @@ export function createPublishUpdateStats() {
     foundPublishMenu: 0,
     sawUpToDate: 0,
     sawUpdate: 0,
+    upToDateNoUpdate: 0,
+    missingUpdate: 0,
+    unexpectedMissingUpdate: 0,
+    draftWithoutUpdate: 0,
     clicked: 0,
+    clickedSettledUpToDate: 0,
+    clickedStillUpdating: 0,
+    clickedUnconfirmed: 0,
     errors: 0
   };
 }
@@ -92,6 +109,7 @@ export async function maybeHandleProjectPublishUpdate({
   pageRecord,
   publishStats,
   pushDebug,
+  projectOverview = null,
   waitForUpdateMs = 30000,
   pageLoadTimeoutMs = null,
   navigateTabFn = navigateTab,
@@ -107,20 +125,37 @@ export async function maybeHandleProjectPublishUpdate({
 
   publishStats.attempted += 1;
   const projectUrl = stripProjectSecurityViewUrl(resolvedUrl);
+  const overviewVisibility = normalizeVisibility(projectOverview?.visibility);
 
   try {
     await navigateTabFn(tabId, projectUrl, { loadTimeoutMs: pageLoadTimeoutMs });
     publishStats.navigated += 1;
 
     const publishResult = await clickPublishUpdateFn(tabId, waitForUpdateMs);
+    const upToDateNoUpdate =
+      publishResult.reason === "still_up_to_date" ||
+      (publishResult.sawUpToDate === true && publishResult.sawUpdate !== true);
+    const missingUpdate = publishResult.sawUpdate !== true && !upToDateNoUpdate;
+    const draftVisibility = isDraftVisibility(overviewVisibility);
+    const visibilityKnown = Boolean(overviewVisibility);
+    const unexpectedMissingUpdate = missingUpdate && visibilityKnown && !draftVisibility;
+
     pageRecord.publishUpdate = {
       projectUrl,
+      overviewVisibility,
+      upToDateNoUpdate,
+      missingUpdate,
+      unexpectedMissingUpdate,
       ...publishResult
     };
 
     pushDebug("project_publish_update", {
       url: resolvedUrl,
       projectUrl,
+      overviewVisibility,
+      upToDateNoUpdate,
+      missingUpdate,
+      unexpectedMissingUpdate,
       ...publishResult
     });
 
@@ -133,14 +168,57 @@ export async function maybeHandleProjectPublishUpdate({
     if (publishResult.sawUpdate) {
       publishStats.sawUpdate += 1;
     }
+    if (upToDateNoUpdate) {
+      publishStats.upToDateNoUpdate += 1;
+    }
+    if (missingUpdate) {
+      publishStats.missingUpdate += 1;
+      if (draftVisibility) {
+        publishStats.draftWithoutUpdate += 1;
+      } else if (unexpectedMissingUpdate) {
+        publishStats.unexpectedMissingUpdate += 1;
+      }
+    }
     if (publishResult.clicked) {
       publishStats.clicked += 1;
+      if (publishResult.postClick?.lifecycle === "up_to_date") {
+        publishStats.clickedSettledUpToDate += 1;
+      } else if (publishResult.postClick?.lifecycle === "updating") {
+        publishStats.clickedStillUpdating += 1;
+      } else {
+        publishStats.clickedUnconfirmed += 1;
+      }
+    }
+
+    if (unexpectedMissingUpdate) {
+      pushDebug("project_publish_update_unexpected_missing_update", {
+        url: resolvedUrl,
+        projectUrl,
+        overviewProject: projectOverview || null,
+        publishResult,
+        tryFixAll: pageRecord.tryFixAll || null,
+        reason:
+          "No Update button found for non-draft project based on Security Center overview visibility"
+      });
+    }
+
+    if (publishResult.clicked && publishResult.postClick?.lifecycle === "updating") {
+      pushDebug("project_publish_update_still_updating", {
+        url: resolvedUrl,
+        projectUrl,
+        overviewProject: projectOverview || null,
+        postClick: publishResult.postClick
+      });
     }
   } catch (error) {
     publishStats.errors += 1;
     const message = error instanceof Error ? error.message : String(error);
     pageRecord.publishUpdate = {
       projectUrl,
+      overviewVisibility,
+      upToDateNoUpdate: false,
+      missingUpdate: false,
+      unexpectedMissingUpdate: false,
       foundPublishMenu: false,
       sawUpToDate: false,
       sawUpdate: false,

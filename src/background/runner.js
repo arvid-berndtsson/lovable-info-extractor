@@ -14,15 +14,18 @@ import { makeProgressReporter } from "./progress.js";
 import { createUrlQueue } from "./queue.js";
 import { scrapeCurrentPage } from "./scrape/index.js";
 import {
+  LOVABLE_ORIGIN,
   MAX_PAGES,
   SECURITY_SECTIONS,
   ensureProjectSecurityViewUrl,
   isLovableProjectPage,
+  isProjectSecurityViewUrl,
   isLovableUrl,
   normalizeUrl,
   nowIso,
   resolveSectionKey,
   sleep,
+  stripProjectSecurityViewUrl,
   toAbsoluteLovableUrl
 } from "./shared.js";
 
@@ -232,6 +235,76 @@ export function buildSeedUrls(activeTabUrl) {
   return [...new Set(seeds)];
 }
 
+function indexOverviewProjectsByUrl(rows, projectOverviewByUrl) {
+  if (!Array.isArray(rows) || !rows.length) {
+    return 0;
+  }
+
+  let indexed = 0;
+  for (const row of rows) {
+    const visibility = String(row?.visibility || "").trim();
+    const projectName = String(row?.projectName || "").trim();
+    const rawSecurityHref = String(row?.securityViewHref || "").trim();
+    if (!rawSecurityHref) {
+      continue;
+    }
+
+    let absoluteSecurityUrl = null;
+    try {
+      absoluteSecurityUrl = normalizeUrl(new URL(rawSecurityHref, LOVABLE_ORIGIN).toString());
+    } catch {
+      absoluteSecurityUrl = null;
+    }
+    if (!absoluteSecurityUrl) {
+      continue;
+    }
+
+    const baseUrl = normalizeUrl(stripProjectSecurityViewUrl(absoluteSecurityUrl));
+    const record = {
+      projectName: projectName || null,
+      visibility: visibility || null,
+      securityViewHref: absoluteSecurityUrl
+    };
+
+    projectOverviewByUrl.set(absoluteSecurityUrl, record);
+    if (baseUrl) {
+      projectOverviewByUrl.set(baseUrl, record);
+    }
+    indexed += 1;
+  }
+
+  return indexed;
+}
+
+function resolveProjectOverviewForUrl(url, projectOverviewByUrl) {
+  if (!projectOverviewByUrl || projectOverviewByUrl.size === 0) {
+    return null;
+  }
+
+  const normalized = normalizeUrl(url || "");
+  if (!normalized) {
+    return null;
+  }
+
+  if (projectOverviewByUrl.has(normalized)) {
+    return projectOverviewByUrl.get(normalized);
+  }
+
+  if (isProjectSecurityViewUrl(normalized)) {
+    const baseUrl = normalizeUrl(stripProjectSecurityViewUrl(normalized));
+    if (baseUrl && projectOverviewByUrl.has(baseUrl)) {
+      return projectOverviewByUrl.get(baseUrl);
+    }
+  } else {
+    const securityUrl = normalizeUrl(ensureProjectSecurityViewUrl(normalized));
+    if (securityUrl && projectOverviewByUrl.has(securityUrl)) {
+      return projectOverviewByUrl.get(securityUrl);
+    }
+  }
+
+  return null;
+}
+
 export async function runLovableAudit(options = {}) {
   if (activeRun) {
     throw new Error("Audit is already running");
@@ -266,6 +339,7 @@ export async function runLovableAudit(options = {}) {
     supplyChain: null,
     secrets: null
   };
+  const projectOverviewByUrl = new Map();
 
   const fixAllStats = createTryFixAllStats();
   const publishUpdateStats = createPublishUpdateStats();
@@ -431,6 +505,7 @@ export async function runLovableAudit(options = {}) {
             pageRecord,
             publishStats: publishUpdateStats,
             pushDebug,
+            projectOverview: resolveProjectOverviewForUrl(resolvedUrl, projectOverviewByUrl),
             waitForUpdateMs: 45000,
             pageLoadTimeoutMs
           });
@@ -493,6 +568,13 @@ export async function runLovableAudit(options = {}) {
               artifacts,
               pushDebug
             });
+
+            const overviewProjects = sectionResults.overview?.table?.projects || [];
+            const indexedProjects = indexOverviewProjectsByUrl(overviewProjects, projectOverviewByUrl);
+            pushDebug("overview_projects_indexed", {
+              indexedProjects,
+              indexSize: projectOverviewByUrl.size
+            });
           }
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
@@ -530,6 +612,7 @@ export async function runLovableAudit(options = {}) {
             crawledPages,
             fixAllStats,
             publishUpdateStats,
+            projectOverviewByUrl,
             pushDebug,
             checkpointFn: (location) => checkpoint(run, location)
           });

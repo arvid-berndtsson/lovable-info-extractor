@@ -7,7 +7,9 @@ import { scrapeCurrentPage } from "./scrape/index.js";
 import {
   ensureProjectSecurityViewUrl,
   isLovableProjectPage,
-  normalizeUrl
+  isProjectSecurityViewUrl,
+  normalizeUrl,
+  stripProjectSecurityViewUrl
 } from "./shared.js";
 
 const WORKER_PLACEHOLDER_URL = "about:blank";
@@ -22,6 +24,35 @@ function uniqueProjectUrls(urls) {
     unique.add(ensureProjectSecurityViewUrl(normalized));
   }
   return [...unique];
+}
+
+function resolveProjectOverviewForUrl(url, projectOverviewByUrl) {
+  if (!projectOverviewByUrl || projectOverviewByUrl.size === 0) {
+    return null;
+  }
+
+  const normalized = normalizeUrl(url || "");
+  if (!normalized) {
+    return null;
+  }
+
+  if (projectOverviewByUrl.has(normalized)) {
+    return projectOverviewByUrl.get(normalized);
+  }
+
+  if (isProjectSecurityViewUrl(normalized)) {
+    const baseUrl = normalizeUrl(stripProjectSecurityViewUrl(normalized));
+    if (baseUrl && projectOverviewByUrl.has(baseUrl)) {
+      return projectOverviewByUrl.get(baseUrl);
+    }
+    return null;
+  }
+
+  const securityUrl = normalizeUrl(ensureProjectSecurityViewUrl(normalized));
+  if (securityUrl && projectOverviewByUrl.has(securityUrl)) {
+    return projectOverviewByUrl.get(securityUrl);
+  }
+  return null;
 }
 
 function withCallbackOrPromise(invoker) {
@@ -152,6 +183,7 @@ export async function processProjectInspectionsInParallel({
   crawledPages,
   fixAllStats,
   publishUpdateStats,
+  projectOverviewByUrl,
   pushDebug,
   checkpointFn
 }) {
@@ -201,9 +233,9 @@ export async function processProjectInspectionsInParallel({
 
   await run.progress.publish({
     phase: "parallel_project_setup",
-      message: grouped
-        ? `Opened ${tabIds.length} worker tabs in a tab group`
-        : `Opened ${tabIds.length} worker tabs${groupProjectTabs ? " (group unavailable)" : ""}`,
+    message: grouped
+      ? `Opened ${tabIds.length} worker tabs in a tab group`
+      : `Opened ${tabIds.length} worker tabs${groupProjectTabs ? " (group unavailable)" : ""}`,
     visitedCount: run.visited.size,
     queuedCount: run.queue.size(),
     parallelProjectProcessed: 0,
@@ -319,6 +351,7 @@ export async function processProjectInspectionsInParallel({
           pageRecord,
           publishStats: publishUpdateStats,
           pushDebug,
+          projectOverview: resolveProjectOverviewForUrl(resolvedUrl, projectOverviewByUrl),
           waitForUpdateMs: 45000,
           pageLoadTimeoutMs
         });
