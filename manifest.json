@@ -1,0 +1,24 @@
+{
+  "manifest_version": 3,
+  "name": "Lovable Info Extractor",
+  "description": "Collect Lovable project URLs and security-center findings for security audits.",
+  "version": "0.1.0",
+  "permissions": [
+    "activeTab",
+    "tabs",
+    "scripting",
+    "storage",
+    "downloads"
+  ],
+  "host_permissions": [
+    "https://lovable.dev/*"
+  ],
+  "background": {
+    "service_worker": "src/background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "Lovable Info Extractor",
+    "default_popup": "src/popup.html"
+  }
+}

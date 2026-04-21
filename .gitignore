@@ -1,0 +1,22 @@
+# macOS
+.DS_Store
+
+# Node / package managers
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Test / coverage
+coverage/
+.nyc_output/
+
+# Local editor/IDE
+.idea/
+.vscode/
+
+# Local scratch files
+*.local
+*.tmp
+tmp/
