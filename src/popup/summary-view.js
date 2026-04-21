@@ -45,6 +45,11 @@ export function updateSummary(result, summaryNode) {
       }`
     );
   }
+  if (typeof result.runOptions?.waitForPublishUpdateCompletion === "boolean") {
+    lines.push(
+      `Wait for publish-update completion: ${result.runOptions.waitForPublishUpdateCompletion ? "on" : "off"}`
+    );
+  }
   if (typeof result.durationMs === "number") {
     lines.push(`Duration: ${Math.round(result.durationMs / 1000)}s`);
   }
@@ -101,7 +106,7 @@ export function updateSummary(result, summaryNode) {
   if (publishUpdate) {
     lines.push("Project publish pass (Update):");
     lines.push(
-      `- attempted=${publishUpdate.attempted ?? 0}, navigated=${publishUpdate.navigated ?? 0}, found-publish-menu=${publishUpdate.foundPublishMenu ?? 0}, saw-up-to-date=${publishUpdate.sawUpToDate ?? 0}, saw-update=${publishUpdate.sawUpdate ?? 0}, up-to-date-no-update=${publishUpdate.upToDateNoUpdate ?? 0}, missing-update=${publishUpdate.missingUpdate ?? 0}, unexpected-missing-update=${publishUpdate.unexpectedMissingUpdate ?? 0}, draft-without-update=${publishUpdate.draftWithoutUpdate ?? 0}, clicked=${publishUpdate.clicked ?? 0}, clicked-settled=${publishUpdate.clickedSettledUpToDate ?? 0}, clicked-still-updating=${publishUpdate.clickedStillUpdating ?? 0}, clicked-unconfirmed=${publishUpdate.clickedUnconfirmed ?? 0}, errors=${publishUpdate.errors ?? 0}`
+      `- attempted=${publishUpdate.attempted ?? 0}, navigated=${publishUpdate.navigated ?? 0}, found-publish-menu=${publishUpdate.foundPublishMenu ?? 0}, publish-menu-open-failures=${publishUpdate.publishMenuOpenFailures ?? 0}, saw-up-to-date=${publishUpdate.sawUpToDate ?? 0}, saw-update=${publishUpdate.sawUpdate ?? 0}, up-to-date-no-update=${publishUpdate.upToDateNoUpdate ?? 0}, missing-update=${publishUpdate.missingUpdate ?? 0}, unexpected-missing-update=${publishUpdate.unexpectedMissingUpdate ?? 0}, draft-without-update=${publishUpdate.draftWithoutUpdate ?? 0}, clicked=${publishUpdate.clicked ?? 0}, clicked-no-wait=${publishUpdate.clickedNoWait ?? 0}, clicked-settled=${publishUpdate.clickedSettledUpToDate ?? 0}, clicked-still-updating=${publishUpdate.clickedStillUpdating ?? 0}, clicked-unconfirmed=${publishUpdate.clickedUnconfirmed ?? 0}, errors=${publishUpdate.errors ?? 0}`
     );
     lines.push("");
   }

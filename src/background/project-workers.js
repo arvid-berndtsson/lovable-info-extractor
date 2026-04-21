@@ -177,6 +177,7 @@ export async function processProjectInspectionsInParallel({
   patchMode,
   projectWorkerCount,
   groupProjectTabs,
+  waitForPublishUpdateCompletion,
   pageLoadTimeoutMs,
   windowId,
   tabInsertIndex,
@@ -366,6 +367,7 @@ export async function processProjectInspectionsInParallel({
           pushDebug,
           projectOverview: resolveProjectOverviewForUrl(resolvedUrl, projectOverviewByUrl),
           waitForUpdateMs: 45000,
+          waitForPublishUpdateCompletion,
           pageLoadTimeoutMs
         });
 

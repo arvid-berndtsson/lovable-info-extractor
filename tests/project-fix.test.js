@@ -45,7 +45,8 @@ test("maybeHandleProjectPublishUpdate navigates to stripped URL and clicks updat
   const pageRecord = {};
   const calls = {
     navigatedTo: null,
-    clicked: false
+    clicked: false,
+    publishOptions: null
   };
 
   await maybeHandleProjectPublishUpdate({
@@ -59,8 +60,9 @@ test("maybeHandleProjectPublishUpdate navigates to stripped URL and clicks updat
     navigateTabFn: async (_tabId, url) => {
       calls.navigatedTo = url;
     },
-    clickPublishUpdateFn: async () => {
+    clickPublishUpdateFn: async (_tabId, options) => {
       calls.clicked = true;
+      calls.publishOptions = options;
       return {
         foundPublishMenu: true,
         sawUpToDate: true,
@@ -82,12 +84,17 @@ test("maybeHandleProjectPublishUpdate navigates to stripped URL and clicks updat
 
   assert.equal(calls.navigatedTo, "https://lovable.dev/projects/abc");
   assert.equal(calls.clicked, true);
+  assert.deepEqual(calls.publishOptions, {
+    waitForUpdateMs: 5000,
+    waitForPostClick: true
+  });
   assert.equal(stats.attempted, 1);
   assert.equal(stats.navigated, 1);
   assert.equal(stats.foundPublishMenu, 1);
   assert.equal(stats.sawUpToDate, 1);
   assert.equal(stats.sawUpdate, 1);
   assert.equal(stats.clicked, 1);
+  assert.equal(stats.clickedNoWait, 0);
   assert.equal(stats.clickedSettledUpToDate, 1);
   assert.equal(stats.clickedStillUpdating, 0);
   assert.equal(stats.clickedUnconfirmed, 0);
@@ -286,6 +293,7 @@ test("maybeHandleProjectPublishUpdate tracks clicked updates that remain in upda
   });
 
   assert.equal(stats.clicked, 1);
+  assert.equal(stats.clickedNoWait, 0);
   assert.equal(stats.clickedSettledUpToDate, 0);
   assert.equal(stats.clickedStillUpdating, 1);
   assert.equal(stats.clickedUnconfirmed, 0);
@@ -294,4 +302,91 @@ test("maybeHandleProjectPublishUpdate tracks clicked updates that remain in upda
     true
   );
   assert.equal(pageRecord.publishUpdate?.postClick?.lifecycle, "updating");
+});
+
+test("maybeHandleProjectPublishUpdate supports click-only mode without waiting for updating lifecycle", async () => {
+  const stats = createPublishUpdateStats();
+  const pageRecord = {};
+  let publishOptions = null;
+
+  await maybeHandleProjectPublishUpdate({
+    enabled: true,
+    tabId: 11,
+    resolvedUrl: "https://lovable.dev/projects/public-three?view=security",
+    pageRecord,
+    publishStats: stats,
+    pushDebug: () => {},
+    waitForPublishUpdateCompletion: false,
+    navigateTabFn: async () => {},
+    clickPublishUpdateFn: async (_tabId, options) => {
+      publishOptions = options;
+      return {
+        foundPublishMenu: true,
+        sawUpToDate: false,
+        sawUpdate: true,
+        clicked: true,
+        waitedMs: 800,
+        reason: "clicked_update",
+        postClick: {
+          lifecycle: "skipped",
+          settled: false,
+          observedUpdating: false,
+          observedUpToDate: false,
+          polls: 0,
+          waitedMs: 0
+        }
+      };
+    }
+  });
+
+  assert.deepEqual(publishOptions, {
+    waitForUpdateMs: 30000,
+    waitForPostClick: false
+  });
+  assert.equal(stats.clicked, 1);
+  assert.equal(stats.clickedNoWait, 1);
+  assert.equal(stats.clickedSettledUpToDate, 0);
+  assert.equal(stats.clickedStillUpdating, 0);
+  assert.equal(stats.clickedUnconfirmed, 0);
+});
+
+test("maybeHandleProjectPublishUpdate logs publish menu open failures", async () => {
+  const stats = createPublishUpdateStats();
+  const pageRecord = {};
+  const debugEvents = [];
+
+  await maybeHandleProjectPublishUpdate({
+    enabled: true,
+    tabId: 12,
+    resolvedUrl: "https://lovable.dev/projects/public-four?view=security",
+    pageRecord,
+    publishStats: stats,
+    pushDebug: (event, payload) => {
+      debugEvents.push({ event, payload });
+    },
+    navigateTabFn: async () => {},
+    clickPublishUpdateFn: async () => ({
+      foundPublishMenu: true,
+      sawUpToDate: false,
+      sawUpdate: false,
+      clicked: false,
+      waitedMs: 2200,
+      reason: "publish_menu_not_opening",
+      publishMenu: {
+        openFailures: 2,
+        openAttempts: 3
+      },
+      diagnostics: {
+        publishMenuStats: {
+          openFailures: 2
+        }
+      }
+    })
+  });
+
+  assert.equal(stats.publishMenuOpenFailures, 2);
+  assert.equal(
+    debugEvents.some((entry) => entry.event === "project_publish_update_publish_menu_issue"),
+    true
+  );
 });
