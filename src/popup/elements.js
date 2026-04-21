@@ -1,6 +1,10 @@
-export const SETTINGS_KEY = "auditSettings";
+import { SETTINGS_KEY } from "../settings.js";
+
+export { SETTINGS_KEY };
 
 export const runAuditButton = document.getElementById("runAudit");
+export const openOptionsButton = document.getElementById("openOptions");
+export const runtimeControls = document.getElementById("runtimeControls");
 export const pauseAuditButton = document.getElementById("pauseAudit");
 export const resumeAuditButton = document.getElementById("resumeAudit");
 export const stopAuditButton = document.getElementById("stopAudit");

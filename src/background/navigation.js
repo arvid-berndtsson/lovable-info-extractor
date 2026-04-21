@@ -34,17 +34,40 @@ export function waitForTabComplete(tabId, timeoutMs = LOAD_TIMEOUT_MS) {
   });
 }
 
-export async function navigateTab(tabId, url) {
+export async function navigateTab(tabId, url, options = {}) {
+  const start = Date.now();
   const targetUrl = normalizeUrl(url);
   const current = await chrome.tabs.get(tabId);
+  const configuredTimeoutMs =
+    Number.isFinite(options?.loadTimeoutMs) && options.loadTimeoutMs > 0
+      ? options.loadTimeoutMs
+      : getPageLoadTimeoutMs(url);
+  const postLoadDelayMs = getPostLoadDelayMs(url);
+
   if (targetUrl && normalizeUrl(current.url || "") === targetUrl && current.status === "complete") {
-    return;
+    return {
+      skippedNavigation: true,
+      configuredTimeoutMs,
+      postLoadDelayMs,
+      waitMs: 0,
+      elapsedMs: Date.now() - start
+    };
   }
 
-  const loadPromise = waitForTabComplete(tabId, getPageLoadTimeoutMs(url));
+  const waitStart = Date.now();
+  const loadPromise = waitForTabComplete(tabId, configuredTimeoutMs);
   await chrome.tabs.update(tabId, { url });
   await loadPromise;
-  await sleep(getPostLoadDelayMs(url));
+  const waitMs = Date.now() - waitStart;
+  await sleep(postLoadDelayMs);
+
+  return {
+    skippedNavigation: false,
+    configuredTimeoutMs,
+    postLoadDelayMs,
+    waitMs,
+    elapsedMs: Date.now() - start
+  };
 }
 
 export async function getActiveTab() {

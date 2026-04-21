@@ -9,7 +9,10 @@ export function makeProgressReporter() {
     visitedCount: 0,
     queuedCount: 0,
     tableRowsFound: 0,
-    expectedTotalProjects: null
+    expectedTotalProjects: null,
+    parallelProjectProcessed: 0,
+    parallelProjectTotal: 0,
+    parallelWorkers: 0
   };
 
   async function publish(patch) {

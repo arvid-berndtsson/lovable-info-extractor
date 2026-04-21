@@ -6,6 +6,7 @@
   "permissions": [
     "activeTab",
     "tabs",
+    "tabGroups",
     "scripting",
     "storage",
     "downloads"
@@ -20,5 +21,9 @@
   "action": {
     "default_title": "Lovable Info Extractor",
     "default_popup": "src/popup.html"
+  },
+  "options_ui": {
+    "page": "src/options.html",
+    "open_in_tab": true
   }
 }

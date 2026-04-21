@@ -5,8 +5,11 @@ function makeDefaultScanTrigger() {
   return {
     enabled: false,
     skippedReason: "disabled_by_option",
+    skipRecentScans: false,
+    recentScanSkipHours: null,
     processedRows: 0,
     clickedCount: 0,
+    skippedRecentCount: 0,
     alreadyScanningCount: 0,
     disabledCount: 0,
     missingButtonCount: 0
@@ -16,6 +19,8 @@ function makeDefaultScanTrigger() {
 export async function collectOverviewAndQueueProjects({
   tabId,
   patchMode,
+  skipRecentScans,
+  recentScanSkipHours,
   progress,
   visitedCount,
   queue,
@@ -34,7 +39,10 @@ export async function collectOverviewAndQueueProjects({
     });
 
     scanTrigger = {
-      ...(await triggerScansForAllProjects(tabId)),
+      ...(await triggerScansForAllProjects(tabId, {
+        skipRecentScans,
+        recentScanSkipHours
+      })),
       enabled: true
     };
     pushDebug("overview_scan_trigger", scanTrigger);

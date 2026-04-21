@@ -19,6 +19,32 @@ export function updateSummary(result, summaryNode) {
   if (typeof result.runOptions?.patchMode === "boolean") {
     lines.push(`Patch mode: ${result.runOptions.patchMode ? "on" : "off"}`);
   }
+  if (typeof result.runOptions?.parallelProjectInspections === "boolean") {
+    lines.push(
+      `Parallel project inspections: ${result.runOptions.parallelProjectInspections ? "on" : "off"}`
+    );
+  }
+  if (typeof result.runOptions?.projectWorkerCount === "number") {
+    lines.push(`Parallel workers: ${result.runOptions.projectWorkerCount}`);
+  }
+  if (typeof result.runOptions?.groupProjectTabs === "boolean") {
+    lines.push(`Tab group: ${result.runOptions.groupProjectTabs ? "on" : "off"}`);
+  }
+  if (typeof result.runOptions?.skipRecentScans === "boolean") {
+    lines.push(`Skip recent scans: ${result.runOptions.skipRecentScans ? "on" : "off"}`);
+  }
+  if (typeof result.runOptions?.recentScanSkipHours === "number") {
+    lines.push(`Recent-scan threshold: ${result.runOptions.recentScanSkipHours}h`);
+  }
+  if (typeof result.runOptions?.pageLoadTimeoutSec === "number") {
+    lines.push(
+      `Page load timeout: ${
+        result.runOptions.pageLoadTimeoutSec > 0
+          ? `${result.runOptions.pageLoadTimeoutSec}s`
+          : "auto (30s general / 60s project)"
+      }`
+    );
+  }
   if (typeof result.durationMs === "number") {
     lines.push(`Duration: ${Math.round(result.durationMs / 1000)}s`);
   }
@@ -51,6 +77,26 @@ export function updateSummary(result, summaryNode) {
     lines.push("");
   }
 
+  const parallelInspection = result.projectActions?.parallelInspection || null;
+  if (parallelInspection?.enabled) {
+    lines.push("Parallel inspection:");
+    lines.push(
+      `- used=${parallelInspection.used ? "yes" : "no"}, workers=${parallelInspection.workerCount ?? 0}, projects=${parallelInspection.processedProjects ?? 0}/${parallelInspection.totalProjects ?? 0}, errors=${parallelInspection.errors ?? 0}`
+    );
+    lines.push(
+      `- tabs-created=${parallelInspection.createdTabs ?? 0}, grouped=${parallelInspection.grouped ? "yes" : "no"}`
+    );
+    if (parallelInspection.groupError) {
+      lines.push(`- group-error=${parallelInspection.groupError}`);
+    }
+    if (parallelInspection.groupDiagnostics) {
+      lines.push(
+        `- group-diagnostics=tabs.group:${parallelInspection.groupDiagnostics.tabsGroupAvailable ? "yes" : "no"}, tabGroups.update:${parallelInspection.groupDiagnostics.tabGroupsUpdateAvailable ? "yes" : "no"}`
+      );
+    }
+    lines.push("");
+  }
+
   const publishUpdate = result.projectActions?.publishUpdate || null;
   if (publishUpdate) {
     lines.push("Project publish pass (Update):");
@@ -72,11 +118,30 @@ export function updateSummary(result, summaryNode) {
   if (scanTrigger) {
     lines.push("Scan trigger pass:");
     lines.push(
-      `- processed=${scanTrigger.processedRows ?? "n/a"}, clicked=${scanTrigger.clickedCount ?? 0}, already-scanning=${scanTrigger.alreadyScanningCount ?? 0}, disabled=${scanTrigger.disabledCount ?? 0}, missing-button=${scanTrigger.missingButtonCount ?? 0}`
+      `- processed=${scanTrigger.processedRows ?? "n/a"}, clicked=${scanTrigger.clickedCount ?? 0}, skipped-recent=${scanTrigger.skippedRecentCount ?? 0}, already-scanning=${scanTrigger.alreadyScanningCount ?? 0}, disabled=${scanTrigger.disabledCount ?? 0}, missing-button=${scanTrigger.missingButtonCount ?? 0}`
     );
     lines.push(
       `- rows-per-page=${scanTrigger.rowsPerPage?.selected ?? "n/a"}, pages-visited=${scanTrigger.pagesVisited ?? "n/a"}`
     );
+    if (scanTrigger.skipRecentScans) {
+      lines.push(`- recent-scan-skip-threshold=${scanTrigger.recentScanSkipHours ?? "n/a"}h`);
+    }
+    lines.push("");
+  }
+
+  const timings = result.timings || null;
+  if (timings) {
+    lines.push("Timing insights:");
+    lines.push(
+      `- pages-with-timings=${timings.pagesWithTimings ?? 0}, avg-total=${timings.total?.averageMs ?? 0}ms, max-total=${timings.total?.maxMs ?? 0}ms`
+    );
+    lines.push(
+      `- avg-navigate=${timings.navigation?.averageMs ?? 0}ms, avg-scrape=${timings.scrape?.averageMs ?? 0}ms`
+    );
+    const slowest = Array.isArray(timings.slowestPages) ? timings.slowestPages.slice(0, 3) : [];
+    for (const entry of slowest) {
+      lines.push(`- slow-page ${entry.totalMs}ms ${entry.url}`);
+    }
     lines.push("");
   }
 

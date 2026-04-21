@@ -1,19 +1,22 @@
 import { collectProjectUrls, parseSecuritySummary } from "../lib/parsers.js";
 import { makeDebugLogger } from "./debug.js";
 import { getActiveTab, navigateTab } from "./navigation.js";
+import { resolveRunOptions } from "./options.js";
 import { collectOverviewAndQueueProjects } from "./overview.js";
-import { makeProgressReporter } from "./progress.js";
+import { processProjectInspectionsInParallel } from "./project-workers.js";
 import {
   createPublishUpdateStats,
   createTryFixAllStats,
   maybeHandleProjectFixAll,
   maybeHandleProjectPublishUpdate
 } from "./project-fix.js";
+import { makeProgressReporter } from "./progress.js";
 import { createUrlQueue } from "./queue.js";
 import { scrapeCurrentPage } from "./scrape/index.js";
 import {
   MAX_PAGES,
   SECURITY_SECTIONS,
+  ensureProjectSecurityViewUrl,
   isLovableProjectPage,
   isLovableUrl,
   normalizeUrl,
@@ -28,6 +31,73 @@ export { createUrlQueue } from "./queue.js";
 const RUN_CONTROL_POLL_MS = 400;
 
 let activeRun = null;
+
+function toNumberOrZero(value) {
+  return Number.isFinite(value) ? value : 0;
+}
+
+function summarizeTimingMetric(values) {
+  if (!values.length) {
+    return {
+      count: 0,
+      averageMs: 0,
+      maxMs: 0,
+      minMs: 0,
+      totalMs: 0
+    };
+  }
+
+  let totalMs = 0;
+  let maxMs = Number.NEGATIVE_INFINITY;
+  let minMs = Number.POSITIVE_INFINITY;
+
+  for (const value of values) {
+    totalMs += value;
+    if (value > maxMs) {
+      maxMs = value;
+    }
+    if (value < minMs) {
+      minMs = value;
+    }
+  }
+
+  return {
+    count: values.length,
+    averageMs: Math.round(totalMs / values.length),
+    maxMs: Math.round(maxMs),
+    minMs: Math.round(minMs),
+    totalMs: Math.round(totalMs)
+  };
+}
+
+function buildTimingInsights(crawledPages) {
+  const timedPages = crawledPages
+    .filter((page) => page?.timings && Number.isFinite(page.timings.totalMs))
+    .map((page) => ({
+      url: page.url,
+      totalMs: toNumberOrZero(page.timings.totalMs),
+      navigateMs: toNumberOrZero(page.timings.navigateMs),
+      scrapeMs: toNumberOrZero(page.timings.scrapeMs),
+      configuredLoadTimeoutMs: toNumberOrZero(page.timings.configuredLoadTimeoutMs),
+      skippedNavigation: page.timings.skippedNavigation === true
+    }));
+
+  const totalDurations = timedPages.map((page) => page.totalMs);
+  const navigateDurations = timedPages.map((page) => page.navigateMs);
+  const scrapeDurations = timedPages.map((page) => page.scrapeMs);
+
+  const slowestPages = [...timedPages]
+    .sort((a, b) => b.totalMs - a.totalMs)
+    .slice(0, 10);
+
+  return {
+    pagesWithTimings: timedPages.length,
+    total: summarizeTimingMetric(totalDurations),
+    navigation: summarizeTimingMetric(navigateDurations),
+    scrape: summarizeTimingMetric(scrapeDurations),
+    slowestPages
+  };
+}
 
 function getControlStateSnapshot() {
   return {
@@ -138,12 +208,46 @@ export function getAuditRunState() {
   return getControlStateSnapshot();
 }
 
+export function buildSeedUrls(activeTabUrl) {
+  const seeds = [];
+  const overviewUrl = toAbsoluteLovableUrl("/settings/security-center");
+  seeds.push(overviewUrl);
+
+  const activeUrl = normalizeUrl(activeTabUrl || "");
+  const projectsIndexUrl = toAbsoluteLovableUrl("/projects");
+
+  if (
+    activeUrl &&
+    isLovableUrl(activeUrl) &&
+    activeUrl !== projectsIndexUrl &&
+    activeUrl !== overviewUrl
+  ) {
+    seeds.push(activeUrl);
+  }
+
+  for (const section of SECURITY_SECTIONS) {
+    seeds.push(toAbsoluteLovableUrl(section.path));
+  }
+
+  return [...new Set(seeds)];
+}
+
 export async function runLovableAudit(options = {}) {
   if (activeRun) {
     throw new Error("Audit is already running");
   }
 
-  const patchMode = options.patchMode === true;
+  const runOptions = resolveRunOptions(options);
+  const {
+    patchMode,
+    parallelProjectInspections,
+    groupProjectTabs,
+    projectWorkerCount,
+    skipRecentScans,
+    recentScanSkipHours,
+    pageLoadTimeoutMs
+  } = runOptions;
+
   const startedAt = Date.now();
   const progress = makeProgressReporter();
   const { debugLog, pushDebug } = makeDebugLogger();
@@ -156,13 +260,30 @@ export async function runLovableAudit(options = {}) {
   const queue = createUrlQueue(visited);
   const artifacts = [];
   const crawledPages = [];
+  const deferredProjectUrls = new Set();
   const sectionResults = {
     overview: null,
     supplyChain: null,
     secrets: null
   };
+
   const fixAllStats = createTryFixAllStats();
   const publishUpdateStats = createPublishUpdateStats();
+  const parallelInspectionStats = {
+    enabled: parallelProjectInspections,
+    used: false,
+    totalProjects: 0,
+    processedProjects: 0,
+    workerCount: 0,
+    createdTabs: 0,
+    grouped: false,
+    groupId: null,
+    groupError: null,
+    groupDiagnostics: null,
+    errors: 0,
+    stoppedEarly: false
+  };
+
   let overviewTableCollected = false;
   let stoppedByUser = false;
 
@@ -181,180 +302,242 @@ export async function runLovableAudit(options = {}) {
 
   try {
     await progress.publish({
-    phase: "initializing",
-    message: "Starting audit",
-    startedAt: run.startedAt
-  });
+      phase: "initializing",
+      message: "Starting audit",
+      startedAt: run.startedAt
+    });
 
     pushDebug("run_started", {
-    tabId,
-    originalUrl: originalUrl || null,
-    patchMode
-  });
+      tabId,
+      originalUrl: originalUrl || null,
+      ...runOptions
+    });
 
-    const activeUrl = normalizeUrl(activeTab.url || "");
-    if (activeUrl && isLovableUrl(activeUrl)) {
-      queue.enqueue(activeUrl);
-    } else {
-      queue.enqueue(toAbsoluteLovableUrl("/projects"));
-    }
-
-    queue.enqueue(toAbsoluteLovableUrl("/projects"));
-    for (const section of SECURITY_SECTIONS) {
-      queue.enqueue(toAbsoluteLovableUrl(section.path));
+    for (const seedUrl of buildSeedUrls(activeTab.url || "")) {
+      queue.enqueue(seedUrl);
     }
     pushDebug("seed_queue_ready", { queuedCount: queue.size() });
 
     try {
       while (queue.size() > 0 && visited.size < MAX_PAGES) {
-      if ((await checkpoint(run, "loop_start")) === "stop") {
-        stoppedByUser = true;
-        break;
-      }
-
-      const targetUrl = queue.dequeue();
-      if (!targetUrl || visited.has(targetUrl)) {
-        continue;
-      }
-
-      visited.add(targetUrl);
-      await progress.publish({
-        phase: "navigating",
-        message: `Visiting ${targetUrl}`,
-        visitedCount: visited.size,
-        queuedCount: queue.size()
-      });
-      pushDebug("visiting_url", {
-        url: targetUrl,
-        visitedCount: visited.size,
-        queuedCount: queue.size()
-      });
-
-      try {
-        if ((await checkpoint(run, "before_navigate")) === "stop") {
+        if ((await checkpoint(run, "loop_start")) === "stop") {
           stoppedByUser = true;
           break;
         }
 
-        await navigateTab(tabId, targetUrl);
-        const scraped = await scrapeCurrentPage(tabId);
-        if (!scraped || !scraped.url) {
+        const dequeuedUrl = queue.dequeue();
+        const targetUrl =
+          dequeuedUrl && isLovableProjectPage(dequeuedUrl)
+            ? ensureProjectSecurityViewUrl(dequeuedUrl)
+            : dequeuedUrl;
+        if (!targetUrl || visited.has(targetUrl)) {
           continue;
         }
 
-        const resolvedUrl = normalizeUrl(scraped.url || targetUrl) || targetUrl;
-        const sectionKey = resolveSectionKey(resolvedUrl);
-        const parsedSecurity = sectionKey ? parseSecuritySummary(scraped.text) : null;
+        visited.add(targetUrl);
 
-        pushDebug("page_scraped", {
-          url: resolvedUrl,
-          sectionKey,
-          textLength: scraped.text.length,
-          anchors: scraped.anchors.length
+        if (parallelProjectInspections && isLovableProjectPage(targetUrl)) {
+          deferredProjectUrls.add(ensureProjectSecurityViewUrl(targetUrl));
+          pushDebug("deferred_project_url", {
+            url: targetUrl,
+            deferredCount: deferredProjectUrls.size
+          });
+          continue;
+        }
+
+        await progress.publish({
+          phase: "navigating",
+          message: `Visiting ${targetUrl}`,
+          visitedCount: visited.size,
+          queuedCount: queue.size()
+        });
+        pushDebug("visiting_url", {
+          url: targetUrl,
+          visitedCount: visited.size,
+          queuedCount: queue.size()
         });
 
-        const pageRecord = {
-          url: resolvedUrl,
-          title: scraped.title,
-          textLength: scraped.text.length
-        };
-        crawledPages.push(pageRecord);
-
-        if ((await checkpoint(run, "before_project_fix")) === "stop") {
-          stoppedByUser = true;
-          break;
-        }
-
-        await maybeHandleProjectFixAll({
-          enabled: patchMode,
-          tabId,
-          resolvedUrl,
-          pageRecord,
-          fixAllStats,
-          pushDebug,
-          waitForEnabledMs: 8000
-        });
-
-        if ((await checkpoint(run, "before_project_publish_update")) === "stop") {
-          stoppedByUser = true;
-          break;
-        }
-
-        await maybeHandleProjectPublishUpdate({
-          enabled: patchMode,
-          tabId,
-          resolvedUrl,
-          pageRecord,
-          publishStats: publishUpdateStats,
-          pushDebug,
-          waitForUpdateMs: 45000
-        });
-
-        artifacts.push(scraped.text);
-        artifacts.push(scraped.title);
-
-        for (const anchor of scraped.anchors) {
-          if (!anchor.href) {
-            continue;
-          }
-
-          artifacts.push(anchor.href);
-          if (anchor.text) {
-            artifacts.push(anchor.text);
-          }
-
-          const normalizedAnchor = normalizeUrl(anchor.href);
-          if (
-            normalizedAnchor &&
-            isLovableProjectPage(normalizedAnchor) &&
-            !visited.has(normalizedAnchor)
-          ) {
-            queue.enqueue(normalizedAnchor);
-          }
-        }
-
-        if (sectionKey) {
-          const existing = sectionResults[sectionKey] || {};
-          sectionResults[sectionKey] = {
-            ...existing,
-            url: resolvedUrl,
-            summary: parsedSecurity,
-            textPreview: scraped.text.slice(0, 1200)
-          };
-        }
-
-        if (sectionKey === "overview" && !overviewTableCollected) {
-          if ((await checkpoint(run, "before_overview_collect")) === "stop") {
+        const pageLoopStartedAt = Date.now();
+        try {
+          if ((await checkpoint(run, "before_navigate")) === "stop") {
             stoppedByUser = true;
             break;
           }
 
-          overviewTableCollected = true;
+          const pageStart = Date.now();
+          const navigationTiming = await navigateTab(tabId, targetUrl, { loadTimeoutMs: pageLoadTimeoutMs });
+          const scrapeStartedAt = Date.now();
+          const scraped = await scrapeCurrentPage(tabId);
+          const scrapeMs = Date.now() - scrapeStartedAt;
+          if (!scraped || !scraped.url) {
+            continue;
+          }
 
-          await collectOverviewAndQueueProjects({
+          const resolvedUrl = normalizeUrl(scraped.url || targetUrl) || targetUrl;
+          const sectionKey = resolveSectionKey(resolvedUrl);
+          const parsedSecurity = sectionKey ? parseSecuritySummary(scraped.text) : null;
+
+          pushDebug("page_scraped", {
+            url: resolvedUrl,
+            sectionKey,
+            textLength: scraped.text.length,
+            anchors: scraped.anchors.length
+          });
+
+          const pageRecord = {
+            url: resolvedUrl,
+            title: scraped.title,
+            textLength: scraped.text.length,
+            timings: {
+              navigateMs: navigationTiming?.elapsedMs || 0,
+              waitForLoadMs: navigationTiming?.waitMs || 0,
+              scrapeMs,
+              totalMs: Date.now() - pageStart,
+              configuredLoadTimeoutMs: navigationTiming?.configuredTimeoutMs || pageLoadTimeoutMs || null,
+              skippedNavigation: navigationTiming?.skippedNavigation === true
+            }
+          };
+          crawledPages.push(pageRecord);
+
+          pushDebug("page_timing", {
+            url: resolvedUrl,
+            timings: pageRecord.timings
+          });
+
+          if ((await checkpoint(run, "before_project_fix")) === "stop") {
+            stoppedByUser = true;
+            break;
+          }
+
+          await maybeHandleProjectFixAll({
+            enabled: patchMode,
             tabId,
-            patchMode,
-            progress,
-            visitedCount: visited.size,
-            queue,
-            sectionResults,
-            artifacts,
-            pushDebug
+            resolvedUrl,
+            pageRecord,
+            fixAllStats,
+            pushDebug,
+            waitForEnabledMs: 8000
+          });
+
+          if ((await checkpoint(run, "before_project_publish_update")) === "stop") {
+            stoppedByUser = true;
+            break;
+          }
+
+          await maybeHandleProjectPublishUpdate({
+            enabled: patchMode,
+            tabId,
+            resolvedUrl,
+            pageRecord,
+            publishStats: publishUpdateStats,
+            pushDebug,
+            waitForUpdateMs: 45000,
+            pageLoadTimeoutMs
+          });
+
+          artifacts.push(scraped.text);
+          artifacts.push(scraped.title);
+
+          for (const anchor of scraped.anchors) {
+            if (!anchor.href) {
+              continue;
+            }
+
+            artifacts.push(anchor.href);
+            if (anchor.text) {
+              artifacts.push(anchor.text);
+            }
+
+            const normalizedAnchor = normalizeUrl(anchor.href);
+            if (!normalizedAnchor || !isLovableProjectPage(normalizedAnchor)) {
+              continue;
+            }
+
+            const securityProjectUrl = ensureProjectSecurityViewUrl(normalizedAnchor);
+            if (parallelProjectInspections) {
+              if (!visited.has(securityProjectUrl)) {
+                deferredProjectUrls.add(securityProjectUrl);
+              }
+            } else if (!visited.has(securityProjectUrl)) {
+              queue.enqueue(securityProjectUrl);
+            }
+          }
+
+          if (sectionKey) {
+            const existing = sectionResults[sectionKey] || {};
+            sectionResults[sectionKey] = {
+              ...existing,
+              url: resolvedUrl,
+              summary: parsedSecurity,
+              textPreview: scraped.text.slice(0, 1200)
+            };
+          }
+
+          if (sectionKey === "overview" && !overviewTableCollected) {
+            if ((await checkpoint(run, "before_overview_collect")) === "stop") {
+              stoppedByUser = true;
+              break;
+            }
+
+            overviewTableCollected = true;
+
+            await collectOverviewAndQueueProjects({
+              tabId,
+              patchMode,
+              skipRecentScans,
+              recentScanSkipHours,
+              progress,
+              visitedCount: visited.size,
+              queue,
+              sectionResults,
+              artifacts,
+              pushDebug
+            });
+          }
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          pushDebug("page_error", {
+            url: targetUrl,
+            error: message
+          });
+          crawledPages.push({
+            url: targetUrl,
+            title: "",
+            textLength: 0,
+            timings: {
+              totalMs: Date.now() - pageLoopStartedAt,
+              configuredLoadTimeoutMs: pageLoadTimeoutMs || null
+            },
+            error: message
           });
         }
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        pushDebug("page_error", {
-          url: targetUrl,
-          error: message
-        });
-        crawledPages.push({
-          url: targetUrl,
-          title: "",
-          textLength: 0,
-          error: message
-        });
       }
+
+      if (!stoppedByUser && parallelProjectInspections && deferredProjectUrls.size > 0) {
+        if ((await checkpoint(run, "before_parallel_project_inspections")) === "stop") {
+          stoppedByUser = true;
+        } else {
+          const parallelResult = await processProjectInspectionsInParallel({
+            run,
+            projectUrls: [...deferredProjectUrls],
+            patchMode,
+            projectWorkerCount,
+            groupProjectTabs,
+            pageLoadTimeoutMs,
+            windowId: activeTab.windowId,
+            tabInsertIndex: activeTab.index,
+            artifacts,
+            crawledPages,
+            fixAllStats,
+            publishUpdateStats,
+            pushDebug,
+            checkpointFn: (location) => checkpoint(run, location)
+          });
+          Object.assign(parallelInspectionStats, parallelResult);
+          if (parallelResult.stoppedEarly) {
+            stoppedByUser = true;
+          }
+        }
       }
     } finally {
       if (originalUrl && /^https?:\/\//i.test(originalUrl)) {
@@ -374,45 +557,51 @@ export async function runLovableAudit(options = {}) {
       }
     }
     projectUrls.projectPages = [...new Set(projectUrls.projectPages)].sort();
+    const timingInsights = buildTimingInsights(crawledPages);
 
     const output = {
-    generatedAt: new Date().toISOString(),
-    durationMs: Date.now() - startedAt,
-    runOptions: {
-      patchMode
-    },
-    runState: {
-      stoppedByUser
-    },
-    projectActions: {
-      tryFixAll: fixAllStats,
-      publishUpdate: publishUpdateStats
-    },
-    limits: {
-      maxPages: MAX_PAGES,
-      crawledPages: crawledPages.length
-    },
-    projectUrls,
-    securityCenter: sectionResults,
-    crawledPages,
-    debugLog
+      generatedAt: new Date().toISOString(),
+      durationMs: Date.now() - startedAt,
+      runOptions,
+      runState: {
+        stoppedByUser
+      },
+      projectActions: {
+        tryFixAll: fixAllStats,
+        publishUpdate: publishUpdateStats,
+        parallelInspection: parallelInspectionStats
+      },
+      limits: {
+        maxPages: MAX_PAGES,
+        crawledPages: crawledPages.length
+      },
+      timings: timingInsights,
+      projectUrls,
+      securityCenter: sectionResults,
+      crawledPages,
+      debugLog
     };
 
     await chrome.storage.local.set({ latestAudit: output });
     await progress.publish({
-    phase: stoppedByUser ? "stopped" : "completed",
-    message: stoppedByUser
-      ? `Stopped. Crawled ${crawledPages.length} pages so far.`
-      : `Completed. Crawled ${crawledPages.length} pages, found ${projectUrls.publishedUrls.length} published URLs`,
-    visitedCount: visited.size,
-    queuedCount: queue.size()
-  });
+      phase: stoppedByUser ? "stopped" : "completed",
+      message: stoppedByUser
+        ? `Stopped. Crawled ${crawledPages.length} pages so far.`
+        : `Completed. Crawled ${crawledPages.length} pages, found ${projectUrls.publishedUrls.length} published URLs`,
+      visitedCount: visited.size,
+      queuedCount: queue.size(),
+      parallelProjectProcessed: parallelInspectionStats.processedProjects,
+      parallelProjectTotal: parallelInspectionStats.totalProjects,
+      parallelWorkers: parallelInspectionStats.workerCount
+    });
 
     pushDebug(stoppedByUser ? "run_stopped" : "run_completed", {
-    crawledPages: crawledPages.length,
-    projectPages: projectUrls.projectPages.length,
-    publishedUrls: projectUrls.publishedUrls.length
-  });
+      crawledPages: crawledPages.length,
+      projectPages: projectUrls.projectPages.length,
+      publishedUrls: projectUrls.publishedUrls.length,
+      parallelInspection: parallelInspectionStats,
+      timings: timingInsights
+    });
 
     return output;
   } finally {

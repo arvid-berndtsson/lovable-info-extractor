@@ -39,16 +39,36 @@ Optional:
 1. Click eligible `Scan` buttons on Security Center overview.
 2. Click `Try to fix all` on project security pages when the button is enabled.
 3. Open project Publish flow and click `Update` after `Up to date` changes.
+- In patch mode, `Scan` clicks can skip projects that were scanned recently (default: under `3` hours).
 - Leave `Patch mode` off for passive collection only.
+- Open `Options` from the popup for advanced settings:
+1. `Parallel project inspections`
+2. Worker count (`1` to `8`)
+3. Tab grouping (tab folder)
+4. Skip recently scanned projects + threshold in hours
+5. Page load timeout override in seconds (`0` keeps built-in defaults)
 - During long runs, use `Pause`, `Resume`, and `Stop` in the popup.
 
-## Feed Into `../lovable-security`
+## Feed Into `lovable-security`
 
-1. Move generated `targets.txt` to `../lovable-security/targets.txt`.
-2. Run:
+Use whichever audit repo setup you have:
+
+1. Local sibling folder setup (`../lovable-security`):
 
 ```bash
 cd ../lovable-security
+bun run audit --targets-file /path/to/targets.txt
+```
+
+2. Public repository:
+
+- `https://github.com/arvid-berndtsson/lovable-security-audit`
+
+Example:
+
+```bash
+git clone https://github.com/arvid-berndtsson/lovable-security-audit.git
+cd lovable-security-audit
 bun run audit --targets-file targets.txt
 ```
 
@@ -67,8 +87,12 @@ npm test
 ## Code Layout
 
 - `src/background/runner.js`: main crawl loop orchestration
+- `src/background/options.js`: run-option normalization (patch mode, parallel workers, grouping)
+- `src/background/navigation.js`: tab navigation + page-load waiting logic
+- `src/settings.js`: shared persisted setting keys/defaults
 - `src/background/queue.js`: URL queue dedupe and normalization
 - `src/background/overview.js`: security-center overview table collection and project queue expansion
+- `src/background/project-workers.js`: parallel project inspection workers and tab-group lifecycle
 - `src/background/project-fix.js`: project-level `Try to fix all` and publish/update action handling
 - `src/background/scrape/`: split scraping modules:
   - `current-page.js`
@@ -78,3 +102,13 @@ npm test
   - `try-fix-all.js`
 - `src/popup.js`: popup controller
 - `src/popup/`: popup UI modules (`elements`, `progress-view`, `summary-view`, `downloads`)
+- `src/options.html`, `src/options.js`, `src/options.css`: advanced settings page
+
+## Timing Data in Logs
+
+- Exported JSON now includes run timing insights in `timings`:
+1. Average/max/min total page processing time
+2. Average/max/min navigation wait
+3. Average/max/min scrape time
+4. Slowest pages (top 10)
+- Each crawled page entry in `crawledPages` includes `timings` (when available), plus debug log events such as `page_timing` and `parallel_page_timing`.

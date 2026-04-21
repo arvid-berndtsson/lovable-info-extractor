@@ -2,10 +2,12 @@ import {
   SETTINGS_KEY,
   downloadJsonButton,
   downloadTargetsButton,
+  openOptionsButton,
   patchModeToggle,
   pauseAuditButton,
   progressNode,
   resumeAuditButton,
+  runtimeControls,
   runAuditButton,
   statusNode,
   stopAuditButton,
@@ -14,8 +16,10 @@ import {
 import { downloadAuditJson, downloadTargets } from "./popup/downloads.js";
 import { renderProgress } from "./popup/progress-view.js";
 import { updateSummary } from "./popup/summary-view.js";
+import { DEFAULT_AUDIT_SETTINGS } from "./settings.js";
 
 let latestResult = null;
+let currentSettings = { ...DEFAULT_AUDIT_SETTINGS };
 
 function setStatus(message) {
   statusNode.textContent = message;
@@ -28,9 +32,19 @@ function setDownloadButtonsEnabled(enabled) {
 
 function setRunControlButtons({ running, paused }) {
   runAuditButton.disabled = running;
-  pauseAuditButton.disabled = !running || paused;
-  resumeAuditButton.disabled = !running || !paused;
-  stopAuditButton.disabled = !running;
+  runtimeControls.hidden = !running;
+
+  const showPause = running && !paused;
+  const showResume = running && paused;
+  const showStop = running;
+
+  pauseAuditButton.hidden = !showPause;
+  resumeAuditButton.hidden = !showResume;
+  stopAuditButton.hidden = !showStop;
+
+  pauseAuditButton.disabled = !showPause;
+  resumeAuditButton.disabled = !showResume;
+  stopAuditButton.disabled = !showStop;
 }
 
 function inferRunStateFromProgress(progress) {
@@ -42,6 +56,28 @@ function inferRunStateFromProgress(progress) {
     return { running: true, paused: true };
   }
   return { running: true, paused: false };
+}
+
+function readSettingsFromUI() {
+  return {
+    ...currentSettings,
+    patchMode: patchModeToggle.checked
+  };
+}
+
+async function saveSettings() {
+  currentSettings = readSettingsFromUI();
+  await chrome.storage.local.set({
+    [SETTINGS_KEY]: currentSettings
+  });
+}
+
+function applySettingsToUI(settings = {}) {
+  currentSettings = {
+    ...DEFAULT_AUDIT_SETTINGS,
+    ...settings
+  };
+  patchModeToggle.checked = currentSettings.patchMode === true;
 }
 
 async function refreshRunState() {
@@ -84,9 +120,7 @@ async function runAudit() {
   try {
     const response = await chrome.runtime.sendMessage({
       type: "runAudit",
-      options: {
-        patchMode: patchModeToggle.checked
-      }
+      options: readSettingsFromUI()
     });
 
     if (!response?.ok) {
@@ -135,12 +169,9 @@ stopAuditButton.addEventListener("click", async () => {
   await sendControlAction("stopAudit", "Failed to stop audit");
 });
 
-patchModeToggle.addEventListener("change", async () => {
-  await chrome.storage.local.set({
-    [SETTINGS_KEY]: {
-      patchMode: patchModeToggle.checked
-    }
-  });
+patchModeToggle.addEventListener("change", saveSettings);
+openOptionsButton.addEventListener("click", async () => {
+  await chrome.runtime.openOptionsPage();
 });
 
 downloadJsonButton.addEventListener("click", () => {
@@ -153,8 +184,7 @@ downloadTargetsButton.addEventListener("click", () => {
 
 (async () => {
   const data = await chrome.storage.local.get(["latestAudit", "auditProgress", SETTINGS_KEY]);
-  const patchMode = data?.[SETTINGS_KEY]?.patchMode === true;
-  patchModeToggle.checked = patchMode;
+  applySettingsToUI(data?.[SETTINGS_KEY] || {});
 
   if (!data.latestAudit) {
     renderProgress(data.auditProgress || null, { progressNode, setStatus });
@@ -170,11 +200,12 @@ downloadTargetsButton.addEventListener("click", () => {
 })();
 
 chrome.storage.onChanged.addListener((changes, areaName) => {
-  if (areaName !== "local" || !changes.auditProgress) {
-    return;
+  if (areaName === "local" && changes.auditProgress) {
+    const progress = changes.auditProgress.newValue || null;
+    renderProgress(progress, { progressNode, setStatus });
+    setRunControlButtons(inferRunStateFromProgress(progress));
   }
-
-  const progress = changes.auditProgress.newValue || null;
-  renderProgress(progress, { progressNode, setStatus });
-  setRunControlButtons(inferRunStateFromProgress(progress));
+  if (areaName === "local" && changes[SETTINGS_KEY]) {
+    applySettingsToUI(changes[SETTINGS_KEY].newValue || {});
+  }
 });
