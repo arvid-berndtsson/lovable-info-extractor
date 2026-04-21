@@ -13,6 +13,7 @@ import {
 import { makeProgressReporter } from "./progress.js";
 import { createUrlQueue } from "./queue.js";
 import { scrapeCurrentPage } from "./scrape/index.js";
+import { recoverProjectSecurityView } from "./security-view.js";
 import {
   LOVABLE_ORIGIN,
   MAX_PAGES,
@@ -441,8 +442,19 @@ export async function runLovableAudit(options = {}) {
           const pageStart = Date.now();
           const navigationTiming = await navigateTab(tabId, targetUrl, { loadTimeoutMs: pageLoadTimeoutMs });
           const scrapeStartedAt = Date.now();
-          const scraped = await scrapeCurrentPage(tabId);
+          let scraped = await scrapeCurrentPage(tabId);
           const scrapeMs = Date.now() - scrapeStartedAt;
+
+          const securityRecoveryResult = await recoverProjectSecurityView({
+            tabId,
+            intendedUrl: targetUrl,
+            initialScraped: scraped,
+            scrapeFn: scrapeCurrentPage,
+            pushDebug,
+            loadTimeoutMs: pageLoadTimeoutMs
+          });
+          scraped = securityRecoveryResult.scraped;
+
           if (!scraped || !scraped.url) {
             continue;
           }
@@ -462,6 +474,7 @@ export async function runLovableAudit(options = {}) {
             url: resolvedUrl,
             title: scraped.title,
             textLength: scraped.text.length,
+            securityViewRecovery: securityRecoveryResult.recovery,
             timings: {
               navigateMs: navigationTiming?.elapsedMs || 0,
               waitForLoadMs: navigationTiming?.waitMs || 0,
