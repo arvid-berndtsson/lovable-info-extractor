@@ -51,6 +51,15 @@ export function updateSummary(result, summaryNode) {
     lines.push("");
   }
 
+  const publishUpdate = result.projectActions?.publishUpdate || null;
+  if (publishUpdate) {
+    lines.push("Project publish pass (Update):");
+    lines.push(
+      `- attempted=${publishUpdate.attempted ?? 0}, navigated=${publishUpdate.navigated ?? 0}, found-publish-menu=${publishUpdate.foundPublishMenu ?? 0}, saw-up-to-date=${publishUpdate.sawUpToDate ?? 0}, saw-update=${publishUpdate.sawUpdate ?? 0}, clicked=${publishUpdate.clicked ?? 0}, errors=${publishUpdate.errors ?? 0}`
+    );
+    lines.push("");
+  }
+
   if (overviewStats) {
     lines.push("Overview stats cards:");
     lines.push(

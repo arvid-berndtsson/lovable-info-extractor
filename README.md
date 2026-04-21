@@ -12,8 +12,9 @@ Chromium extension for gathering Lovable project URLs and security-center signal
 3. `https://lovable.dev/settings/security-center?section=secrets`
 - Full project table traversal on Security Center overview (scrolls virtualized table, collects all `View` links, then visits each project)
 - Pagination-aware traversal (`Page X of Y`) and automatic attempt to set `Rows per page` to `100`
-- Project URLs are normalized to `?view=security` during crawl
+- Visits both base project pages and `?view=security` pages when discovered
 - On project security pages, extension attempts to click `Try to fix all` when available and enabled
+- After project fixes in patch mode, extension opens project Publish menu and clicks `Update` once it becomes available
 - Overview stat cards from Security Center (`Total projects`, `With errors`, `With warnings`, `Scanned`)
 - Live run progress + debug log entries in exported JSON
 
@@ -37,6 +38,7 @@ Optional:
 - Enable `Patch mode` in the popup to let the extension:
 1. Click eligible `Scan` buttons on Security Center overview.
 2. Click `Try to fix all` on project security pages when the button is enabled.
+3. Open project Publish flow and click `Update` after `Up to date` changes.
 - Leave `Patch mode` off for passive collection only.
 - During long runs, use `Pause`, `Resume`, and `Stop` in the popup.
 
@@ -65,11 +67,12 @@ npm test
 ## Code Layout
 
 - `src/background/runner.js`: main crawl loop orchestration
-- `src/background/queue.js`: URL queue canonicalization and dedupe
+- `src/background/queue.js`: URL queue dedupe and normalization
 - `src/background/overview.js`: security-center overview table collection and project queue expansion
-- `src/background/project-fix.js`: project-level `Try to fix all` action handling
+- `src/background/project-fix.js`: project-level `Try to fix all` and publish/update action handling
 - `src/background/scrape/`: split scraping modules:
   - `current-page.js`
+  - `publish-update.js`
   - `security-table.js`
   - `scan-trigger.js`
   - `try-fix-all.js`
